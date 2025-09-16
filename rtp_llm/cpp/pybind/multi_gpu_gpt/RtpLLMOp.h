@@ -43,7 +43,6 @@ private:
     std::unique_ptr<ProposeModelEngineInitParams> initProposeModel(py::object              propose_model,
                                                                    const EngineInitParams& base_params);
     void                                          initRPCServer(const EngineInitParams                        maga_init_params,
-                                                                py::object                                    mm_process_engine,
                                                                 std::unique_ptr<ProposeModelEngineInitParams> propose_params,
                                                                 py::object                                    token_processor);
 
