@@ -1,6 +1,7 @@
 package org.flexlb.sync.runner;
 
 import org.flexlb.dao.master.WorkerStatus;
+import org.flexlb.dao.route.RoleType;
 import org.flexlb.domain.worker.WorkerStatusResponse;
 import org.flexlb.engine.grpc.EngineRpcService;
 import org.flexlb.enums.BalanceStatusEnum;
@@ -35,12 +36,14 @@ public class GrpcWorkerStatusRunner implements Runnable {
     private final long startTime = System.currentTimeMillis();
     private final String id = IdUtils.fastUuid();
     private final long syncRequstTimeoutMs;
+    private final RoleType roleType;
 
     public GrpcWorkerStatusRunner(String modelName, String ipPort, String site, String group,
                                   ConcurrentHashMap<String/*ip*/, WorkerStatus> workerStatuses,
                                   EngineHealthReporter engineHealthReporter,
                                   EngineGrpcService engineGrpcService,
-                                  long syncRequstTimeoutMs) {
+                                  long syncRequstTimeoutMs,
+                                  RoleType roleType) {
         this.ipPort = ipPort;
         String[] split = ipPort.split(":");
         this.ip = split[0];
@@ -53,6 +56,7 @@ public class GrpcWorkerStatusRunner implements Runnable {
         this.engineHealthReporter = engineHealthReporter;
         this.engineGrpcService = engineGrpcService;
         this.syncRequstTimeoutMs = syncRequstTimeoutMs;
+        this.roleType = roleType;
     }
 
     @Override
@@ -73,7 +77,7 @@ public class GrpcWorkerStatusRunner implements Runnable {
 
     private WorkerStatusResponse launchGrpcStatusCheck(String ip, int grpcPort, long latestFinishedTaskVersion) {
         try {
-            EngineRpcService.WorkerStatusPB workerStatusPB = engineGrpcService.getWorkerStatus(ip, grpcPort, latestFinishedTaskVersion, syncRequstTimeoutMs);
+            EngineRpcService.WorkerStatusPB workerStatusPB = engineGrpcService.getWorkerStatus(ip, grpcPort, latestFinishedTaskVersion, syncRequstTimeoutMs, roleType);
             return EngineStatusConverter.convertToWorkerStatusResponse(workerStatusPB);
         } catch (Throwable throwable) {
             handleException(throwable);
