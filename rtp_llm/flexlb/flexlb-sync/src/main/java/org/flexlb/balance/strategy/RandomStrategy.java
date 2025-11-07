@@ -18,6 +18,7 @@ import org.flexlb.domain.balance.BalanceContext;
 import org.flexlb.enums.LoadBalanceStrategyEnum;
 import org.flexlb.sync.status.EngineWorkerStatus;
 import org.flexlb.sync.status.ModelWorkerStatus;
+import org.flexlb.util.CommonUtils;
 import org.springframework.stereotype.Component;
 
 /**
@@ -54,10 +55,16 @@ public class RandomStrategy implements LoadBalancer {
         if (CollectionUtils.isEmpty(workerStatuses)) {
             return ServerStatus.code(StrategyErrorType.NO_AVAILABLE_WORKER);
         }
-        ThreadLocalRandom.current().nextInt(workerStatuses.size());
+        int randomIndex = ThreadLocalRandom.current().nextInt(workerStatuses.size());
+        WorkerStatus selectedWorker = workerStatuses.get(randomIndex);
         ServerStatus result = new ServerStatus();
         result.setSuccess(true);
         result.setBatchId(UUID.randomUUID().toString());
+        result.setServerIp(selectedWorker.getIp());
+        result.setHttpPort(selectedWorker.getPort());
+        result.setGrpcPort(CommonUtils.toGrpcPort(selectedWorker.getPort()));
+        result.setRole(roleType);
+        result.setGroup(group);
         return result;
     }
 
