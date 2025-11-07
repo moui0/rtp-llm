@@ -122,6 +122,19 @@ public class GrpcWorkerStatusRunner implements Runnable {
             if (currentVersion >= responseVersion) {
                 logger.info("query engine worker status via gRPC, version is not updated, currentVersion: {}, responseVersion: {}",
                         currentVersion, responseVersion);
+                // Update basic worker status even when version is not updated
+                workerStatus.setAlive(newWorkerStatus.isAlive());
+                workerStatus.setDpSize(newWorkerStatus.getDpSize());
+                workerStatus.setTpSize(newWorkerStatus.getTpSize());
+
+                // Set expiration time to 3 seconds from now
+                workerStatus.getExpirationTime().set(System.currentTimeMillis() + 3000);
+                workerStatus.getLastUpdateTime().set(System.currentTimeMillis());
+
+                // Report success even when version is not updated
+                engineHealthReporter.reportStatusCheckerSuccess(modelName, workerStatus);
+
+                logWorkerStatusUpdate(startTime, workerStatus);
                 return;
             }
 
@@ -180,16 +193,6 @@ public class GrpcWorkerStatusRunner implements Runnable {
         } else {
             engineHealthReporter.reportStatusCheckerFail(modelName, BalanceStatusEnum.WORKER_SERVICE_UNAVAILABLE);
         }
-    }
-
-    private void log(String msg) {
-        logger.info("[gRPC][{}][{}][{}][{}][{}ms]: {}",
-                id,
-                site,
-                ipPort,
-                modelName,
-                System.currentTimeMillis() - startTime,
-                msg);
     }
 
     private void log(String msg, Throwable e) {
