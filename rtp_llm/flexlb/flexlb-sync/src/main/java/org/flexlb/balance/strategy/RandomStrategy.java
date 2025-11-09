@@ -50,7 +50,7 @@ public class RandomStrategy implements LoadBalancer {
 
         Map<String/*ip*/, WorkerStatus> workerStatusMap =
                 Optional.ofNullable(engineWorkerStatus.getModelRoleWorkerStatusMap().get(modelName))
-                        .map(ModelWorkerStatus::getVitStatusMap)
+                    .map(entry -> entry.getRoleStatusMap(roleType, group))
                         .orElse(null);
 
         if (MapUtils.isEmpty(workerStatusMap)) {
