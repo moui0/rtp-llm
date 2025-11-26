@@ -40,4 +40,10 @@ int getMultiProcessorCount(int device_id = -1);
 int getMaxSharedMemoryPerMultiprocessor(int device_id = -1);
 
 }  // namespace rocm
+
+// Graph capture 标志（与 CUDA 共用命名空间）
+struct CaptureCheck {
+    static bool in_hip_graph_capture;
+};
+
 }  // namespace rtp_llm

@@ -15,29 +15,38 @@ FusedRopeKVCachePrefillOp::FusedRopeKVCachePrefillOp(const GptInitParameter& gpt
     FMHARocmBase(gpt_init_parameter) {}
 
 CKAttnPtr FusedRopeKVCachePrefillOp::prepare(torch_ext::PyAttentionInputs attn_inputs) {
-    int       batch_size = attn_inputs.input_lengths.size(0);
+    // 确保 input_lengths 在 GPU 上
+    torch::Tensor input_lengths = attn_inputs.input_lengths;
+    if (!input_lengths.is_cuda()) {
+        input_lengths = input_lengths.cuda();
+    }
+
+    int       batch_size = input_lengths.size(0);
     BufferPtr kv_cache_block_id_host, kv_cache_block_id_device;
     if (attn_inputs.kv_cache_block_id_host.defined() && attn_inputs.kv_cache_block_id_host.numel() > 0) {
         kv_cache_block_id_host   = torchTensor2Buffer(attn_inputs.kv_cache_block_id_host);
         kv_cache_block_id_device = torchTensor2Buffer(attn_inputs.kv_cache_block_id_device);
     }
 
-    // 计算累积序列长度
-    torch::Tensor cu_seqlens = torch::zeros({batch_size + 1}, torch::TensorOptions(torch::kInt32).device(torch::kCPU));
-    cu_seqlens.slice(0, 1, batch_size + 1) = attn_inputs.input_lengths.cumsum(0);
-    cu_seqlens                             = cu_seqlens.cuda();
+    // 计算累积序列长度 - 直接在 GPU 上操作
+    torch::Tensor cu_seqlens = torch::zeros({batch_size + 1}, torch::TensorOptions(torch::kInt32).device(torch::kCUDA));
+    cu_seqlens.slice(0, 1, batch_size + 1) = input_lengths.cumsum(0);
 
     // 计算包含前缀的累积序列长度
-    torch::Tensor kv_lengths = attn_inputs.input_lengths.clone();
+    torch::Tensor kv_lengths = input_lengths.clone();
     bool          has_prefix = attn_inputs.prefix_lengths.defined() && attn_inputs.prefix_lengths.numel() > 0;
     if (has_prefix) {
-        kv_lengths = kv_lengths + attn_inputs.prefix_lengths;
+        // 确保 prefix_lengths 在 GPU 上
+        torch::Tensor prefix_lengths = attn_inputs.prefix_lengths;
+        if (!prefix_lengths.is_cuda()) {
+            prefix_lengths = prefix_lengths.cuda();
+        }
+        kv_lengths = kv_lengths + prefix_lengths;
     }
 
     torch::Tensor cu_kv_seqlens =
-        torch::zeros({batch_size + 1}, torch::TensorOptions(torch::kInt32).device(torch::kCPU));
+        torch::zeros({batch_size + 1}, torch::TensorOptions(torch::kInt32).device(torch::kCUDA));
     cu_kv_seqlens.slice(0, 1, batch_size + 1) = kv_lengths.cumsum(0);
-    cu_kv_seqlens                             = cu_kv_seqlens.cuda();
 
     CKAttnPtr attn_params;
     auto      params = device_->PrepareCKAttn(
@@ -48,17 +57,23 @@ CKAttnPtr FusedRopeKVCachePrefillOp::prepare(torch_ext::PyAttentionInputs attn_i
         attn_params = std::make_shared<CKAttn>();
     }
 
-    attn_params->attn_type      = torchDTypeToDataType(attn_inputs.dtype);
-    attn_params->cu_seqlens     = cu_seqlens;
-    attn_params->cu_kv_seqlens  = cu_kv_seqlens;
-    attn_params->max_seq_len    = attn_inputs.input_lengths.max().item<int32_t>();
-    attn_params->padding_offset = attn_inputs.padding_offset;
+    attn_params->attn_type     = torchDTypeToDataType(attn_inputs.dtype);
+    attn_params->cu_seqlens    = cu_seqlens;
+    attn_params->cu_kv_seqlens = cu_kv_seqlens;
+    attn_params->max_seq_len   = input_lengths.max().item<int32_t>();
+
+    // 确保 padding_offset 在 GPU 上
+    torch::Tensor padding_offset = attn_inputs.padding_offset;
+    if (padding_offset.defined() && !padding_offset.is_cuda()) {
+        padding_offset = padding_offset.cuda();
+    }
+    attn_params->padding_offset = padding_offset;
 
     // 处理 prefix_lengths：确保在 CUDA 上且连续
     if (has_prefix) {
         torch::Tensor prefix_lengths = attn_inputs.prefix_lengths;
         if (!prefix_lengths.is_cuda()) {
-            prefix_lengths = prefix_lengths.to(torch::kCUDA, /*non_blocking=*/false, /*copy=*/true);
+            prefix_lengths = prefix_lengths.cuda();
         }
         attn_params->prefix_lengths = prefix_lengths.contiguous();
     } else {
@@ -295,27 +310,49 @@ FusedRopeKVCacheDecodeOp::FusedRopeKVCacheDecodeOp(const GptInitParameter& gpt_i
     FMHARocmBase(gpt_init_parameter) {}
 
 CKAttnPtr FusedRopeKVCacheDecodeOp::prepare(torch_ext::PyAttentionInputs attn_inputs) {
-    int       batch_size = attn_inputs.sequence_lengths.size(0);
+    // 确保 sequence_lengths 在 GPU 上
+    torch::Tensor sequence_lengths = attn_inputs.sequence_lengths;
+    if (!sequence_lengths.is_cuda()) {
+        sequence_lengths = sequence_lengths.cuda();
+    }
+
+    int       batch_size = sequence_lengths.size(0);
     BufferPtr kv_cache_block_id_host, kv_cache_block_id_device;
     if (attn_inputs.kv_cache_block_id_host.defined() && attn_inputs.kv_cache_block_id_host.numel() > 0) {
 
         kv_cache_block_id_host   = torchTensor2Buffer(attn_inputs.kv_cache_block_id_host);
         kv_cache_block_id_device = torchTensor2Buffer(attn_inputs.kv_cache_block_id_device);
     }
+
+    // 确保 input_lengths 在 GPU 上
+    torch::Tensor input_lengths = attn_inputs.input_lengths;
+    if (!input_lengths.is_cuda()) {
+        input_lengths = input_lengths.cuda();
+    }
+
+    // 确保 cu_seqlens 在 GPU 上
+    torch::Tensor cu_seqlens = attn_inputs.cu_seqlens;
+    if (!cu_seqlens.is_cuda()) {
+        cu_seqlens = cu_seqlens.cuda();
+    }
+
     // not support has_alibi_slopes
-    attn_inputs.cu_seqlens.slice(0, 1, batch_size + 1) = attn_inputs.input_lengths.cumsum(0);
-    auto cu_seqlens                                    = attn_inputs.cu_seqlens;
+    cu_seqlens.slice(0, 1, batch_size + 1) = input_lengths.cumsum(0);
 
     // 计算包含前缀的累积序列长度
-    torch::Tensor kv_lengths = attn_inputs.input_lengths;
+    torch::Tensor kv_lengths = input_lengths.clone();
     if (attn_inputs.prefix_lengths.defined() && attn_inputs.prefix_lengths.numel() > 0) {
-        kv_lengths = kv_lengths + attn_inputs.prefix_lengths;
+        // 确保 prefix_lengths 在 GPU 上
+        torch::Tensor prefix_lengths = attn_inputs.prefix_lengths;
+        if (!prefix_lengths.is_cuda()) {
+            prefix_lengths = prefix_lengths.cuda();
+        }
+        kv_lengths = kv_lengths + prefix_lengths;
     }
 
     torch::Tensor cu_kv_seqlens =
-        torch::zeros({batch_size + 1}, torch::TensorOptions(torch::kInt32).device(torch::kCPU));
+        torch::zeros({batch_size + 1}, torch::TensorOptions(torch::kInt32).device(torch::kCUDA));
     cu_kv_seqlens.slice(0, 1, batch_size + 1) = kv_lengths.cumsum(0);
-    cu_kv_seqlens                             = cu_kv_seqlens.cuda();
 
     CKAttnPtr attn_params;
 
@@ -333,11 +370,27 @@ CKAttnPtr FusedRopeKVCacheDecodeOp::prepare(torch_ext::PyAttentionInputs attn_in
     attn_params->attn_type                 = torchDTypeToDataType(attn_inputs.dtype);
     attn_params->cu_seqlens                = cu_seqlens;
     attn_params->cu_kv_seqlens             = cu_kv_seqlens;
-    attn_params->sequence_lengths          = attn_inputs.sequence_lengths;
+    attn_params->sequence_lengths          = sequence_lengths;
     attn_params->kv_block_array.cache_type = attn_configs_.kv_cache_dtype;
-    attn_params->input_lengths             = attn_inputs.input_lengths;
-    attn_params->prefix_lengths            = attn_inputs.prefix_lengths;
-    attn_params->padding_offset            = attn_inputs.padding_offset;
+    attn_params->input_lengths             = input_lengths;
+
+    // 确保 prefix_lengths 在 GPU 上
+    if (attn_inputs.prefix_lengths.defined() && attn_inputs.prefix_lengths.numel() > 0) {
+        torch::Tensor prefix_lengths = attn_inputs.prefix_lengths;
+        if (!prefix_lengths.is_cuda()) {
+            prefix_lengths = prefix_lengths.cuda();
+        }
+        attn_params->prefix_lengths = prefix_lengths;
+    } else {
+        attn_params->prefix_lengths = attn_inputs.prefix_lengths;
+    }
+
+    // 确保 padding_offset 在 GPU 上
+    torch::Tensor padding_offset = attn_inputs.padding_offset;
+    if (padding_offset.defined() && !padding_offset.is_cuda()) {
+        padding_offset = padding_offset.cuda();
+    }
+    attn_params->padding_offset = padding_offset;
 
     if (attn_inputs.kv_cache_block_id_device.defined() && attn_inputs.kv_cache_block_id_device.numel() > 0) {
         attn_params->kv_cache_block_id_device = attn_inputs.kv_cache_block_id_device;

@@ -1,7 +1,12 @@
 #include "hip_host_utils.h"
 #include "rtp_llm/cpp/devices/OpData.h"
 #include "rtp_llm/cpp/config/StaticConfig.h"
+
 namespace rtp_llm {
+
+// 定义 CaptureCheck 静态变量
+bool CaptureCheck::in_hip_graph_capture = false;
+
 namespace rocm {
 
 static const char* _hipGetErrorEnum(hipError_t error) {
