@@ -28,17 +28,17 @@ CudaGraphRunnerPtr CudaGraphDecodePaddingOp::createCudaGraphRunner(py::object   
                                                                    int64_t          tokens_per_block,
                                                                    int64_t          kv_block_offset,
                                                                    std::vector<int> decode_capture_batch_sizes) {
-    DeviceInitParams params;
-    DeviceBase*      device                              = rtp_llm::DeviceFactory::getDefaultDevice();
-    params.hw_kernel_config.enable_cuda_graph            = true;
-    params.concurrency_config.concurrency_limit          = 128;
-    params.hw_kernel_config.enable_cuda_graph_debug_mode = false;
-    params.hidden_size                                   = hidden_size;
-    params.max_seq_len                                   = max_seq_len;
-    params.tokens_per_block                              = tokens_per_block;
-    params.hw_kernel_config.decode_capture_batch_sizes   = decode_capture_batch_sizes;
-    auto               runner_ptr = device->getDeviceGraphRunner(params, std::move(py_instance), kv_block_offset);
-    CudaGraphRunnerPtr cuda_graph_runner_ptr = dynamic_cast<CudaGraphRunner*>(runner_ptr);
+    GraphParams graph_params;
+    graph_params.enable_cuda_graph            = true;
+    graph_params.enable_cuda_graph_debug_mode = false;
+    graph_params.is_prefill_cuda_graph_mode   = false;
+    graph_params.max_seq_len                  = max_seq_len;
+    graph_params.tokens_per_block             = tokens_per_block;
+    graph_params.kv_cache_block_offset        = kv_block_offset;
+    graph_params.concurrency_limit            = 128;
+    graph_params.decode_capture_batch_sizes   = decode_capture_batch_sizes;
+
+    CudaGraphRunnerPtr cuda_graph_runner_ptr = CudaGraphRunner::create(graph_params, std::move(py_instance));
     cuda_graph_runner_ptr->setModelDataType(torch::scalarTypeToTypeMeta(torch::kFloat16));
     return cuda_graph_runner_ptr;
 }

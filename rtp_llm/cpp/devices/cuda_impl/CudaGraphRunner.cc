@@ -26,18 +26,6 @@ void optimizedCopy(const torch::Tensor& src, torch::Tensor& dst, size_t size) {
     }
 }
 
-GraphBase* CudaDevice::getDeviceGraphRunner(const DeviceInitParams& params,
-                                            py::object              py_instance,
-                                            int                     kv_cache_block_offset,
-                                            bool                    is_prefill_cuda_graph_mode) {
-    if (!graph_runner_) {
-        at::cuda::CUDAStream capture_stream = *torch_default_stream_;
-        graph_runner_                       = new CudaGraphRunner(
-            params, std::move(py_instance), kv_cache_block_offset, capture_stream, is_prefill_cuda_graph_mode);
-    }
-    return graph_runner_;
-}
-
 py::object CudaGraphRunner::normalForward(PyModelInputs& inputs) {
     return py_forward_method_(inputs);
 }

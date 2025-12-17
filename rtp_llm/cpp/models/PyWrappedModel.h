@@ -8,6 +8,7 @@
 #include <pybind11/embed.h>
 #include "rtp_llm/models_py/bindings/OpDefsUtils.h"
 #include "rtp_llm/cpp/core/torch_utils/BufferTorchUtils.h"
+#include "rtp_llm/cpp/devices/cuda_impl/CudaGraphRunner.h"
 namespace py = pybind11;
 
 namespace rtp_llm {
@@ -78,10 +79,21 @@ inline PyWrappedModel::PyWrappedModel(const GptModelInitParams& params,
     }
     py::object py_init_result;
     if (enable_cuda_graph_) {
-        int kv_cache_offset =
+        const auto& init_params = params.device->initParams();
+        GraphParams graph_params;
+        graph_params.enable_cuda_graph            = init_params.hw_kernel_config.enable_cuda_graph;
+        graph_params.enable_cuda_graph_debug_mode = init_params.hw_kernel_config.enable_cuda_graph_debug_mode;
+        graph_params.is_prefill_cuda_graph_mode   = is_prefill_cuda_graph_mode;
+        graph_params.max_seq_len                  = init_params.max_seq_len;
+        graph_params.tokens_per_block             = init_params.tokens_per_block;
+        graph_params.kv_cache_block_offset =
             is_prefill_cuda_graph_mode ? 0 : k_cache_buffer_->shape()[0] * k_cache_buffer_->shape()[1];
-        graph_runner_ = device_->getDeviceGraphRunner(
-            params.device->initParams(), py_instance, kv_cache_offset, is_prefill_cuda_graph_mode);
+        graph_params.max_context_batch_size     = init_params.fifo_scheduler_config.max_context_batch_size;
+        graph_params.concurrency_limit          = init_params.concurrency_config.concurrency_limit;
+        graph_params.prefill_capture_seq_lens   = init_params.hw_kernel_config.prefill_capture_seq_lens;
+        graph_params.decode_capture_batch_sizes = init_params.hw_kernel_config.decode_capture_batch_sizes;
+
+        graph_runner_ = CudaGraphRunner::create(graph_params, py_instance);
         if (weights_.position_encoding) {
             graph_runner_->setPositionEncoding(Buffer2torchTensor(weights_.position_encoding->kernel, false).cuda());
         }

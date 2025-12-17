@@ -29,17 +29,17 @@ CudaGraphRunnerPtr CudaGraphPrefillOp::createCudaGraphRunner(py::object       py
                                                              int64_t          max_seq_len,
                                                              int64_t          tokens_per_block,
                                                              std::vector<int> prefill_capture_seq_lens) {
-    DeviceInitParams params;
-    DeviceBase*      device                              = rtp_llm::DeviceFactory::getDefaultDevice();
-    params.hw_kernel_config.enable_cuda_graph            = true;
-    params.fifo_scheduler_config.max_context_batch_size  = max_context_batch_size;
-    params.hw_kernel_config.enable_cuda_graph_debug_mode = true;
-    params.hidden_size                                   = hidden_size;
-    params.max_seq_len                                   = max_seq_len;
-    params.tokens_per_block                              = tokens_per_block;
-    params.hw_kernel_config.prefill_capture_seq_lens     = prefill_capture_seq_lens;
-    auto               runner_ptr            = device->getDeviceGraphRunner(params, std::move(py_instance), 0, true);
-    CudaGraphRunnerPtr cuda_graph_runner_ptr = dynamic_cast<CudaGraphRunner*>(runner_ptr);
+    GraphParams graph_params;
+    graph_params.enable_cuda_graph            = true;
+    graph_params.enable_cuda_graph_debug_mode = true;
+    graph_params.is_prefill_cuda_graph_mode   = true;
+    graph_params.max_seq_len                  = max_seq_len;
+    graph_params.tokens_per_block             = tokens_per_block;
+    graph_params.kv_cache_block_offset        = 0;
+    graph_params.max_context_batch_size       = max_context_batch_size;
+    graph_params.prefill_capture_seq_lens     = prefill_capture_seq_lens;
+
+    CudaGraphRunnerPtr cuda_graph_runner_ptr = CudaGraphRunner::create(graph_params, std::move(py_instance));
     cuda_graph_runner_ptr->setModelDataType(torch::scalarTypeToTypeMeta(torch::kBFloat16));
     return cuda_graph_runner_ptr;
 }
