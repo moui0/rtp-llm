@@ -8,7 +8,10 @@
 #include <pybind11/embed.h>
 #include "rtp_llm/models_py/bindings/OpDefsUtils.h"
 #include "rtp_llm/cpp/core/torch_utils/BufferTorchUtils.h"
+#include "rtp_llm/cpp/devices/GraphBase.h"
+#if USING_CUDA
 #include "rtp_llm/cpp/devices/cuda_impl/CudaGraphRunner.h"
+#endif
 namespace py = pybind11;
 
 namespace rtp_llm {
@@ -93,7 +96,12 @@ inline PyWrappedModel::PyWrappedModel(const GptModelInitParams& params,
         graph_params.prefill_capture_seq_lens   = init_params.hw_kernel_config.prefill_capture_seq_lens;
         graph_params.decode_capture_batch_sizes = init_params.hw_kernel_config.decode_capture_batch_sizes;
 
+#if USING_CUDA
         graph_runner_ = CudaGraphRunner::create(graph_params, py_instance);
+        RTP_LLM_CHECK_WITH_INFO(graph_runner_ != nullptr, "graph_runner_ can't be nullptr in PyWrapper");
+#else
+        RTP_LLM_CHECK_WITH_INFO(false, "CUDA Graph is only supported on CUDA platform for now");
+#endif
         if (weights_.position_encoding) {
             graph_runner_->setPositionEncoding(Buffer2torchTensor(weights_.position_encoding->kernel, false).cuda());
         }
