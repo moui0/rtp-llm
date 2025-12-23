@@ -135,16 +135,16 @@ public:
     }
 
     // Only used in C++ world.
-    int                         reuseBlockSize() const;
-    void                        fakeInitKVBlock();
-    virtual absl::Status        initKVBlock(size_t reserve_step = 0);
-    virtual absl::Status        incrKVBlock(size_t reserve_step = 0);
-    virtual int                 tryReleaseKVBlock(int nums);
-    virtual void                releaseResource();
-    int                         nextNeedBlockNums(size_t reserve_step) const;
-    void                        setNeedReleaseResource(bool need_release_resource);
-    bool                        hasCacheKeys() const;
-    const CacheKeysType&        cacheKeys(int32_t batch_id = 0) const;
+    int                  reuseBlockSize() const;
+    void                 fakeInitKVBlock();
+    virtual absl::Status initKVBlock(size_t reserve_step = 0);
+    virtual absl::Status incrKVBlock(size_t reserve_step = 0);
+    virtual int          tryReleaseKVBlock(int nums);
+    virtual void         releaseResource();
+    int                  nextNeedBlockNums(size_t reserve_step) const;
+    void                 setNeedReleaseResource(bool need_release_resource);
+    bool                 hasCacheKeys() const;
+    const CacheKeysType& cacheKeys(int32_t batch_id = 0) const;
 
     std::shared_ptr<GenerateInput>   generateInput() const;
     std::shared_ptr<GenerateConfig>& generateConfig() const;
@@ -502,6 +502,11 @@ public:
     bool enableMemoryBlockCache() const {
         return generate_input_->generate_config->enable_memory_block_cache;
     }
+
+    bool asyncLoadCache();
+    bool loadCacheDone() const;
+    bool loadingCache() const;
+    bool asyncStoreCache();
 
     void fillSubGenerateStatus(StreamState state);
     void resizeSubGenerateStatus(size_t new_size);
