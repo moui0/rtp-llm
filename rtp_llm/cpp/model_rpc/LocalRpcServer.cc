@@ -21,8 +21,7 @@ grpc::Status LocalRpcServer::init(const EngineInitParams&                       
     maga_init_params_ = maga_init_params;
     weight_manager_   = maga_init_params.weight_manager;
     metrics_reporter_ = maga_init_params.metrics_reporter;
-    RTP_LLM_LOG_INFO("LocalRpcServer aux_string %s",
-                     maga_init_params_.misc_config.aux_string.c_str());
+    RTP_LLM_LOG_INFO("LocalRpcServer aux_string %s", maga_init_params_.misc_config.aux_string.c_str());
     const bool use_new_sp_engine = maga_init_params_.sp_config.use_new_sp_engine;
     propose_maga_init_params_    = propose_params.get();
 
@@ -428,8 +427,12 @@ void LocalRpcServer::reportCacheStatusTime(int64_t request_begin_time_us) {
         RTP_LLM_LOG_WARNING("broadcast tp failed, cache manager is null");
         return grpc::Status(grpc::StatusCode::INTERNAL, "cache manager is null");
     }
-    // TODO(LXQ): need to call corresponding function in cache manager
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED, "broadcast tp is not implemented");
+    if (!cache_manager->broadcastTp(*request, *response)) {
+        RTP_LLM_LOG_WARNING("broadcast tp failed, request: [%s]", request->DebugString().c_str());
+        const std::string error_msg = "broadcast tp failed, request: [" + request->DebugString() + "]";
+        return grpc::Status(grpc::StatusCode::INTERNAL, error_msg);
+    }
+    return grpc::Status::OK;
 }
 
 grpc::Status LocalRpcServer::SetPause(grpc::ServerContext* context, const EmptyPB* request, EmptyPB* response) {
