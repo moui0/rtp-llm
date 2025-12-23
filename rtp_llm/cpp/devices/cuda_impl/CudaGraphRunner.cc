@@ -245,7 +245,7 @@ void CudaGraphRunner::initCaptureAttentionInputs(PyModelInputs& inputs, int max_
     inputs.attention_inputs.dtype          = model_data_type_;
     inputs.attention_inputs.is_s_padded    = true;
     // seq_len_tensor [1, int32] for CUDA Graph compatibility
-    inputs.attention_inputs.seq_len_tensor = torch::tensor({0}, options_cpu_int32_).pin_memory();
+    inputs.attention_inputs.seq_len_tensor = torch::tensor({max_seq_len_}, options_cpu_int32_).pin_memory();
 }
 
 void CudaGraphRunner::initCaptureAttentionInputsPost() {
