@@ -73,6 +73,10 @@ public:
         return group_block_ids;
     }
 
+    const LayerBlockIds& layerBlocks() const {
+        return layer_block_ids;
+    }
+
     CacheKeysType& cacheKeys() {
         return cache_keys;
     }
