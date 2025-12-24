@@ -26,10 +26,6 @@ void optimizedCopy(const torch::Tensor& src, torch::Tensor& dst, size_t size) {
     }
 }
 
-py::object CudaGraphRunner::normalForward(PyModelInputs& inputs) {
-    return py_forward_method_(inputs);
-}
-
 // column dimension
 void CudaGraphRunner::copySmallerIntoLarger(const torch::Tensor& source_tensor, torch::Tensor& target_tensor) {
     if (source_tensor.dim() != target_tensor.dim()) {
@@ -135,31 +131,26 @@ void CudaGraphRunner::prepareInputs(PyModelInputs& inputs) {
     }
 }
 
-PyModelOutputs CudaGraphRunner::forward(PyModelInputs& inputs) {
+PyModelOutputs CudaGraphRunner::forward(PyModelInputs& inputs, bool& executed) {
     PyModelOutputs outputs;
-    // decode or embedding model only
-    if (canRun(inputs)) {
-        RTP_LLM_LOG_INFO("Replay Start");
-        prepareInputs(inputs);
-        if (is_prefill_cuda_graph_mode_) {
-            replayPrefill(state_.current_real_graph_seq_len);
-            outputs.hidden_states =
-                graph_instances_[state_.current_real_graph_seq_len].mem_hold_.decoder_layer_hidden_states_.slice(
-                    0, 0, state_.current_seq_len);
-        } else {
-            replayDecode(state_.current_real_graph_bs);
-            outputs.hidden_states =
-                graph_instances_[state_.current_real_graph_bs].mem_hold_.decoder_layer_hidden_states_.slice(
-                    0, 0, state_.seq_len_sum);
-        }
-        RTP_LLM_LOG_INFO("Replay End");
-    } else {
-        RTP_LLM_LOG_INFO("Normal Cuda Graph Start");
-        auto py_outputs_obj = normalForward(inputs);
-        // Cast the Python object to PyModelOutputs and extract hidden states
-        outputs = py_outputs_obj.cast<PyModelOutputs>();
+    executed = canRun(inputs);
+    if (!executed) {
+        return outputs;
     }
-
+    RTP_LLM_LOG_DEBUG("Replay Start");
+    prepareInputs(inputs);
+    if (is_prefill_cuda_graph_mode_) {
+        replayPrefill(state_.current_real_graph_seq_len);
+        outputs.hidden_states =
+            graph_instances_[state_.current_real_graph_seq_len].mem_hold_.decoder_layer_hidden_states_.slice(
+                0, 0, state_.current_seq_len);
+    } else {
+        replayDecode(state_.current_real_graph_bs);
+        outputs.hidden_states =
+            graph_instances_[state_.current_real_graph_bs].mem_hold_.decoder_layer_hidden_states_.slice(
+                0, 0, state_.seq_len_sum);
+    }
+    RTP_LLM_LOG_DEBUG("Replay End");
     return outputs;
 }
 
@@ -341,6 +332,7 @@ void CudaGraphRunner::initCapture() {
         initKernelInternalMemory();
         // get real output data type
         RTP_LLM_LOG_INFO("initCapture forward for output datatype start");
+        // for output datatype and stable running cuda graph environment
         auto py_outputs_obj = py_forward_method_(capture_mem_hold_.py_model_inputs_);
         RTP_LLM_LOG_INFO("initCapture forward for output datatype end");
         auto outputs        = py_outputs_obj.cast<PyModelOutputs>();
@@ -355,6 +347,7 @@ void CudaGraphRunner::initCapture() {
         initCaptureAttentionInputsPost();
         if (is_prefill_cuda_graph_mode_) {
             RTP_LLM_LOG_INFO("initCapture forward post check start for prefill");
+            // stable running cuda graph environment for cuda graph, otherwise it will cause kernel error!!!
             capture_mem_hold_.py_model_inputs_.attention_inputs.cu_seqlens.data_ptr<int>()[1]    = max_num_token_;
             capture_mem_hold_.py_model_inputs_.attention_inputs.cu_kv_seqlens.data_ptr<int>()[1] = max_num_token_;
             capture_mem_hold_.py_model_inputs_.attention_inputs.input_lengths.data_ptr<int>()[0] = max_num_token_;
@@ -376,11 +369,6 @@ void CudaGraphRunner::replayGraph(int key) {
 
 void CudaGraphRunner::captureOneGraphInstance(int key, const char* key_type) {
     auto inputs = graph_instances_[key].mem_hold_.py_model_inputs_;
-    // WarmUp twice
-    RTP_LLM_LOG_INFO("WarmUp for %s %d start.", key_type, key);
-    py_forward_method_(inputs);
-    py_forward_method_(inputs);
-    RTP_LLM_LOG_INFO("WarmUp for %s %d successfully.", key_type, key);
 
     {
         CudaGraphStreamLife  stream_life(capture_stream_);

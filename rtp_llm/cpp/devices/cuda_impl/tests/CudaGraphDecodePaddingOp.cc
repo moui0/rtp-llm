@@ -38,7 +38,7 @@ PYBIND11_MODULE(libtest_cuda_graph_decode_ops, m) {
              py::arg("tokens_per_block"),
              py::arg("kv_block_offset"),
              py::arg("decode_capture_batch_sizes"))
-        .def("forward", &cuda_graph::CudaGraphDecodePaddingOp::forward)
+        .def("forward", &CudaGraphDecodePaddingOp::forward)
         .def("getCurrentRealGraphSize", &cuda_graph::CudaGraphDecodePaddingOp::getCurrentRealGraphSize);
 }
 

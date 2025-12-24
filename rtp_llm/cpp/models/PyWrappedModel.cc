@@ -282,17 +282,21 @@ GptModelOutputs PyWrappedModel::forward(const GptModelInputs& inputs) {
         PyModelOutputs py_model_outputs;
         BufferPtr      hidden_states;
         // Cast the Python object to PyModelOutputs and extract hidden states
-        if (enable_cuda_graph_) {
+        // Try CUDA graph forward, fall back to normal forward if not executed
+        bool graph_executed = false;
+        if (enable_cuda_graph_ && graph_runner_) {
             DevicePerfWrapper wrapper(device_, "cuda graph python forward");
             py_model_inputs.attention_inputs.is_s_padded = true;
-            py_model_outputs                             = graph_runner_->forward(py_model_inputs);
-            hidden_states                                = torchTensor2Buffer(py_model_outputs.hidden_states);
-        } else {
+            py_model_outputs                             = graph_runner_->forward(py_model_inputs, graph_executed);
+        }
+        if (!graph_executed) {
             DevicePerfWrapper wrapper(device_, "normal forward");
             auto              py_model_forward = py_model_.attr("forward");
             auto              outputs          = py_model_forward(py_model_inputs);
             py_model_outputs                   = outputs.cast<PyModelOutputs>();
             hidden_states                      = device_->clone({*torchTensor2Buffer(py_model_outputs.hidden_states)});
+        } else {
+            hidden_states = torchTensor2Buffer(py_model_outputs.hidden_states);
         }
 
         RTP_LLM_LOG_DEBUG("Python object instance forward method called successfully.");
