@@ -19,11 +19,11 @@ namespace rtp_llm {
 PyWrappedModel::~PyWrappedModel() {
     try {
         py::gil_scoped_acquire gil;
-        if (!device_->initParams().hw_kernel_config.enable_cuda_graph) {
-            py_model_.release();  // Release the Python object
-        } else {
-            RTP_LLM_CHECK_WITH_INFO(graph_runner_ != nullptr, "graph_runner_ can not be nullptr");
+        // Always release py_model_ since it's always initialized now
+        py_model_.release();
+        if (graph_runner_ != nullptr) {
             delete graph_runner_;
+            graph_runner_ = nullptr;
         }
         RTP_LLM_LOG_INFO("PyWrappedModel destroyed, Python object instance released.");
     } catch (const py::error_already_set& e) {

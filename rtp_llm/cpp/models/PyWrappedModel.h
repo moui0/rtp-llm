@@ -81,6 +81,11 @@ inline PyWrappedModel::PyWrappedModel(const GptModelInitParams& params,
         init_resources.kv_cache = kv_cache;
     }
     py::object py_init_result;
+    // Always initialize py_model_ so it can be used as fallback when CUDA graph cannot run
+    py_model_                 = py_instance;
+    auto py_initialize_method = py_model_.attr("initialize");
+    py_init_result            = py_initialize_method(init_resources);
+
     if (enable_cuda_graph_) {
         const auto& init_params = params.device->initParams();
         GraphParams graph_params;
@@ -113,13 +118,7 @@ inline PyWrappedModel::PyWrappedModel(const GptModelInitParams& params,
         caffe2::TypeMeta dtype = torch::scalarTypeToTypeMeta(dataTypeToTorchType(description_.data_type));
         graph_runner_->setModelDataType(dtype);
         RTP_LLM_CHECK_WITH_INFO(graph_runner_ != nullptr, "graph_runner_ can't be null");
-        auto py_initialize_method = py_instance.attr("initialize");
-        py_init_result            = py_initialize_method(init_resources);
         graph_runner_->initCapture();
-    } else {
-        py_model_                 = std::move(py_instance);
-        auto py_initialize_method = py_model_.attr("initialize");
-        py_init_result            = py_initialize_method(init_resources);
     }
 
     auto py_init_success = py_init_result.cast<bool>();
