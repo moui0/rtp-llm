@@ -120,12 +120,12 @@ class TestCudaGraphDecodePadding(unittest.TestCase):
         # cu_seqlens
         cu_len = batch_size + 1
         cu_seqlens = torch.zeros(cu_len, dtype=torch.int32, device="cpu").pin_memory()
-        cu_seqlens_without_prefix = torch.zeros(
-            cu_len, dtype=torch.int32, device="cpu"
-        ).pin_memory()
 
         attention_inputs.cu_seqlens = cu_seqlens
-
+        attention_inputs.cu_kv_seqlens = cu_seqlens.clone()
+        # For decode mode: each batch has 1 token, so total = batch_size
+        attention_inputs.context_total_kv_length = batch_size * num_tokens_per_bs
+        attention_inputs.total_tokens = batch_size * num_tokens_per_bs
         inputs.attention_inputs = attention_inputs
         return inputs
 
