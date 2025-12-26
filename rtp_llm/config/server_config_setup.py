@@ -48,10 +48,9 @@ def auto_configure_deepep(
     tp_size = g_parallel_info.tp_size
     ep_size = g_parallel_info.ep_size
 
-    moe_config.use_all_gather = (
-        moe_config.use_all_gather
-        and not deep_ep_config.use_deepep_low_latency
-        and ep_size == tp_size)
+    moe_config.use_all_gather = (moe_config.use_all_gather and
+                                 not deep_ep_config.use_deepep_low_latency and
+                                 ep_size == tp_size)
 
     if moe_config.use_all_gather:
         moe_config.use_deepep_moe = False
