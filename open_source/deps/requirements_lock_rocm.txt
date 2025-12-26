@@ -2886,7 +2886,11 @@ torch @ https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/tor
     #   sentence-transformers
     #   timm
     #   torchvision
+<<<<<<< HEAD
 torchvision @ https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/torchvision/torchvision-0.22.1%2Brocm6.4.3.git59a3e1f-cp310-cp310-linux_x86_64.whl \
+=======
+torchvision @ https://siwei-zm.oss-cn-hangzhou-zmf.aliyuncs.com/MI308X/deps/torchvision-0.22.1%2Brocm6.4.3.git59a3e1f-cp310-cp310-linux_x86_64.whl \
+>>>>>>> 7060b64b8 (update: update torch to 2.7.1 with rocm 6.4.3)
     --hash=sha256:1bd5ef9dfb53a3f4249b6708ed0aa21d038e3b2707574118b2cb355c3cffdefc
     # via
     #   -r open_source/deps/requirements_rocm.txt
