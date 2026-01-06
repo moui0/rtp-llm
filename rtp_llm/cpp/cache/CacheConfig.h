@@ -195,11 +195,11 @@ struct CacheConfig {
     std::vector<std::vector<int>> global_layer_ids;  // including mtp module layers
     std::vector<std::vector<int>> layer_ids;
 
-    rtp_llm::DataType dtype;
-    uint32_t          layer_num;      // the number of main model layers
-    uint32_t          layer_all_num;  // the number of all layers including mtp modules
+    rtp_llm::DataType dtype         = rtp_llm::TYPE_INVALID;
+    uint32_t          layer_num     = 0;  // the number of main model layers
+    uint32_t          layer_all_num = 0;  // the number of all layers including mtp modules
 
-    uint32_t block_num;
+    uint32_t block_num = 0;
 
     // ---- Per-block sizes (all layers) ----
     // kv_block_*: kv cache only

@@ -294,7 +294,9 @@ private:
         constexpr int kTestMemoryCacheSyncTimeout = 1000;
 
         CacheConfig config;
+        config.dtype                                        = rtp_llm::DataType::TYPE_FP16;
         config.layer_num                                    = layer_num;
+        config.layer_all_num                                = layer_num;
         config.block_num                                    = block_num;
         config.seq_size_per_block                           = seq_size_per_block;
         kv_cache_config_.memory_block_cache_size_mb         = kTestMemoryCacheSizeMb;
@@ -458,7 +460,7 @@ private:
     LayerBlockIds makeLayerBlockIds(const std::vector<std::vector<int>>& per_layer_block_indices,
                                     size_t                               cache_keys_num) const {
         LayerBlockIds lbs;
-        const size_t  layer_num = cache_config_.layer_num;
+        const size_t  layer_num = cache_config_.layer_all_num;
         lbs.reserve(layer_num);
 
         for (size_t layer = 0; layer < layer_num; ++layer) {
@@ -1766,7 +1768,7 @@ TEST_F(KVCacheMemoryConnectorTest, copyCache_ReturnFalse_InvalidLayerId_BuildCop
     MemoryBroadcastTpRequestPB req;
     auto*                      gb = req.add_gpu_blocks();
     auto*                      lb = gb->add_layer_blocks();
-    lb->set_layer_id(cache_config_.layer_num);  // out of range
+    lb->set_layer_id(cache_config_.layer_all_num);  // out of range
     lb->set_block_id(gpu_block_idx);
     req.add_mem_block_ids(mem_block_index);
     req.add_mem_block_sizes(static_cast<int64_t>(total));
@@ -2028,9 +2030,9 @@ TEST_F(KVCacheMemoryConnectorTest, prepareCopyBuffers_ReturnFalse_InvalidLayerId
         EXPECT_TRUE(src.empty());
     }
     {
-        // 使用非法 layer_id 触发实现中的校验失败, layer_id >= cache_config_.layer_num
+        // 使用非法 layer_id 触发实现中的校验失败, layer_id >= cache_config_.layer_all_num
         std::vector<KVCacheMemoryConnector::LayerBlock> gpu_layer_blocks{
-            {static_cast<int>(cache_config_.layer_num), gpu_block_idx}};
+            {static_cast<int>(cache_config_.layer_all_num), gpu_block_idx}};
         std::vector<rtp_llm::BufferPtr> dst, src;
         auto                            ok = connector_->prepareCopyBuffers(
             gpu_layer_blocks, mem_block_index, total_bytes, KVCacheMemoryConnector::CopyDirection::H2D, dst, src);
@@ -2278,9 +2280,10 @@ TEST_F(KVCacheMemoryConnectorTest, checkKVCacheResource_ReturnFalse_WhenBlocksNu
     auto res        = std::make_shared<KVCacheResourceV1>();
     res->cache_keys = CacheKeysType{1, 2};
 
+    const auto    layer_num = cache_config_.layer_all_num;
     LayerBlockIds lbs;
-    lbs.reserve(cache_config_.layer_num);
-    for (int i = 0; i < cache_config_.layer_num; ++i) {
+    lbs.reserve(layer_num);
+    for (int i = 0; i < layer_num; ++i) {
         auto ptr      = std::make_shared<BlockIds>();
         ptr->blocks() = {1};  // size 1 < cache_keys.size() (2)
         lbs.emplace_back(std::move(ptr));
