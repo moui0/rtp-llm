@@ -1144,10 +1144,6 @@ GptLayerOutputs GptModel::forwardGptLayer(GptLayerInputs                        
         std::filesystem::path file_path = dir_path / filename.str();
         
         saveTorchDataTofile(Buffer2torchTensor(inputs.hidden, false), file_path.string());
-        
-        if (layer_id >= 35) {
-            forward_count++;
-        }
     }
     
     auto              pre_decoder_residual   = inputs.pre_decoder_residual;
@@ -1261,6 +1257,10 @@ GptLayerOutputs GptModel::forwardGptLayer(GptLayerInputs                        
     hidden = std::move(ffn_layernorm_output.output);
     printBufferData(*hidden, "layer_" + to_string(layer_id) + "_final_hidden");
 
+        
+        if (layer_id == 35) {
+            forward_count++;
+        }
     return {hidden, pre_decoder_residual, moe_gating};
 }
 
