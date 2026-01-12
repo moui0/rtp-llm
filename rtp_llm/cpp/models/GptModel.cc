@@ -1133,7 +1133,15 @@ GptLayerOutputs GptModel::forwardGptLayer(GptLayerInputs                        
     static int forward_count = 0;
     const char* dump_dir = std::getenv("XBJ_DUMP");
     
-    if (dump_dir != nullptr && inputs.hidden != nullptr) {
+    // 检查是否启用dump：通过检查控制文件是否存在
+    bool dump_enabled = false;
+    if (dump_dir != nullptr) {
+        std::filesystem::path dir_path(dump_dir);
+        std::filesystem::path enable_file = dir_path / ".dump_enable";
+        dump_enabled = std::filesystem::exists(enable_file);
+    }
+    
+    if (dump_enabled && inputs.hidden != nullptr) {
         std::filesystem::path dir_path(dump_dir);
         if (!std::filesystem::exists(dir_path)) {
             std::filesystem::create_directories(dir_path);
@@ -1149,7 +1157,7 @@ GptLayerOutputs GptModel::forwardGptLayer(GptLayerInputs                        
     auto              pre_decoder_residual   = inputs.pre_decoder_residual;
     auto              attention_block_output = forwardAttentionBlock(inputs, layer_id, lora_model_input);
 
-    if (dump_dir != nullptr && attention_block_output.hidden != nullptr) {
+    if (dump_enabled && attention_block_output.hidden != nullptr) {
         std::filesystem::path dir_path(dump_dir);
         if (!std::filesystem::exists(dir_path)) {
             std::filesystem::create_directories(dir_path);
