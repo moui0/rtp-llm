@@ -1266,7 +1266,7 @@ GptLayerOutputs GptModel::forwardGptLayer(GptLayerInputs                        
     printBufferData(*hidden, "layer_" + to_string(layer_id) + "_final_hidden");
 
         
-        if (layer_id == 35) {
+        if (dump_enabled && layer_id == 35) {
             forward_count++;
         }
     return {hidden, pre_decoder_residual, moe_gating};
