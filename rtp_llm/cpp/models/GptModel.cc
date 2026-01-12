@@ -13,6 +13,9 @@
 #include "rtp_llm/cpp/config/ConfigModules.h"
 #include <algorithm>
 #include <memory>
+#include <cstdlib>
+#include <filesystem>
+#include <sstream>
 
 using namespace std;
 
@@ -1126,8 +1129,42 @@ GptLayerOutputs GptModel::forwardGptLayer(GptLayerInputs                        
                                           const int32_t                           layer_id,
                                           const rtp_llm::lora::LoraModelInputPtr& lora_model_input) {
     DevicePerfWrapper wrapper(device_, "forwardGptLayer_token_num_%d", inputs.hidden ? inputs.hidden->shape()[0] : 0);
+    
+    static int forward_count = 0;
+    const char* dump_dir = std::getenv("XBJ_DUMP");
+    
+    if (dump_dir != nullptr && inputs.hidden != nullptr) {
+        std::filesystem::path dir_path(dump_dir);
+        if (!std::filesystem::exists(dir_path)) {
+            std::filesystem::create_directories(dir_path);
+        }
+        
+        std::ostringstream filename;
+        filename << "fwd" << forward_count << "_layer" << layer_id << "_attn_hidden.pt";
+        std::filesystem::path file_path = dir_path / filename.str();
+        
+        saveTorchDataTofile(Buffer2torchTensor(inputs.hidden, false), file_path.string());
+        
+        if (layer_id >= 35) {
+            forward_count++;
+        }
+    }
+    
     auto              pre_decoder_residual   = inputs.pre_decoder_residual;
     auto              attention_block_output = forwardAttentionBlock(inputs, layer_id, lora_model_input);
+
+    if (dump_dir != nullptr && attention_block_output.hidden != nullptr) {
+        std::filesystem::path dir_path(dump_dir);
+        if (!std::filesystem::exists(dir_path)) {
+            std::filesystem::create_directories(dir_path);
+        }
+        
+        std::ostringstream filename;
+        filename << "fwd" << forward_count << "_layer" << layer_id << "_attn_output_hidden.pt";
+        std::filesystem::path file_path = dir_path / filename.str();
+        
+        saveTorchDataTofile(Buffer2torchTensor(attention_block_output.hidden, false), file_path.string());
+    }
 
     auto        hidden    = move(attention_block_output.hidden);
     auto        residual  = move(attention_block_output.residual);
