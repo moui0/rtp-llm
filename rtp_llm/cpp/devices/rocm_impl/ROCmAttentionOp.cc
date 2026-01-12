@@ -12,6 +12,8 @@
 #include "rtp_llm/cpp/devices/rocm_impl/aiterPA.h"
 #include "rtp_llm/cpp/config/StaticConfig.h"
 #include <filesystem>
+#include <cstdlib>
+#include <sstream>
 
 using namespace std;
 namespace fs = std::filesystem;
@@ -1101,6 +1103,31 @@ void selfAttentionwrapper(const AttentionModuleParams params,
 }
 
 AttentionModuleOutput ROCmDevice::decoderSelfAttention(const AttentionModuleParams& params) {
+    static int forward_count = 0;
+    const char* dump_dir = std::getenv("XBJ_DUMP");
+    
+    // 检查是否启用dump：通过检查控制文件是否存在
+    bool dump_enabled = false;
+    if (dump_dir != nullptr) {
+        std::filesystem::path dir_path(dump_dir);
+        std::filesystem::path enable_file = dir_path / ".dump_enable";
+        dump_enabled = std::filesystem::exists(enable_file);
+    }
+    
+    // 保存input
+    if (dump_enabled) {
+        std::filesystem::path dir_path(dump_dir);
+        if (!std::filesystem::exists(dir_path)) {
+            std::filesystem::create_directories(dir_path);
+        }
+        
+        std::ostringstream filename;
+        filename << "fwd" << forward_count << "_layer" << params.layer_id << "_pa_input.pt";
+        std::filesystem::path file_path = dir_path / filename.str();
+        
+        saveTorchDataTofile(Buffer2torchTensor(params.input, false), file_path.string());
+    }
+    
     auto      datatype         = params.input.type();
     size_t    max_seq_len_tile = 0;
     BufferPtr partial_out      = nullptr;
@@ -1273,6 +1300,24 @@ AttentionModuleOutput ROCmDevice::decoderSelfAttention(const AttentionModulePara
                                          stream_);
         check_cuda_error();
         DEBUG_PRINT_PARAMS(params, this, "decode_attn");
+    }
+    
+    // 保存output
+    if (dump_enabled) {
+        std::filesystem::path dir_path(dump_dir);
+        if (!std::filesystem::exists(dir_path)) {
+            std::filesystem::create_directories(dir_path);
+        }
+        
+        std::ostringstream filename;
+        filename << "fwd" << forward_count << "_layer" << params.layer_id << "_pa_output.pt";
+        std::filesystem::path file_path = dir_path / filename.str();
+        
+        saveTorchDataTofile(Buffer2torchTensor(params.output, false), file_path.string());
+        
+        if (params.layer_id == 35) {
+            forward_count++;
+        }
     }
 }
 
