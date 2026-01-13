@@ -1234,6 +1234,7 @@ AttentionModuleOutput ROCmDevice::decoderSelfAttention(const AttentionModulePara
                     rope_cache.used && rope_cache.data.defined() ? static_cast<float2*>(rope_cache.data.data_ptr()) :
                                                                    nullptr,
                     stream_);
+            
             } else {
                 DISPATCH_CUDA_FUNCTION_DATA_TYPE(
                     datatype,
@@ -1274,6 +1275,19 @@ AttentionModuleOutput ROCmDevice::decoderSelfAttention(const AttentionModulePara
             check_cuda_error();
             DEBUG_PRINT_PARAMS(params, this, "decode_writeKVCache", q_output);
             if (init_params_.use_asm_pa) {
+            // 保存q_output
+            if (dump_enabled) {
+                std::filesystem::path dir_path(dump_dir);
+                if (!std::filesystem::exists(dir_path)) {
+                    std::filesystem::create_directories(dir_path);
+                }
+                
+                std::ostringstream filename;
+                filename << "fwd" << forward_count << "_layer" << params.layer_id << "_q_output.pt";
+                std::filesystem::path file_path = dir_path / filename.str();
+                
+                saveTorchDataTofile(Buffer2torchTensor(*q_output, false), file_path.string());
+            }
                 runAiterAsmPA(params, this, *q_output);
             } else {
                 runAiterPA(params, this, *q_output);
