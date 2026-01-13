@@ -155,7 +155,19 @@ AttentionModuleOutput CudaDevice::contextAttention(const AttentionModuleParams& 
 
     std::cout << "[CudaAttentionOp] Checking condition: fmha_type_=" << (int)fmha_type_ 
               << " (NONE=" << (int)FMHAType::NONE << "), max_prefix_prompt_length=" 
-              << prefix_prompt_param.max_prefix_prompt_length << std::endl;
+              << prefix_prompt_param.max_prefix_prompt_length 
+              << ", kv_cache exists=" << (params.common.kv_cache.has_value() ? "true" : "false")
+              << ", prefix_prompt_lengths exists=" << (params.common.prefix_prompt_lengths ? "true" : "false")
+              << ", batch_size=" << batch_size
+              << ", seq_len=" << seq_len
+              << ", head_num=" << head_num
+              << ", kv_head_num=" << kv_head_num
+              << ", size_per_head=" << size_per_head << std::endl;
+    
+    if (params.common.kv_cache) {
+        std::cout << "[CudaAttentionOp] kv_block_array.mMaxSeqs=" << kv_block_array.mMaxSeqs
+                  << ", cache_type=" << (int)kv_block_array.cache_type << std::endl;
+    }
     
     if (fmha_type_ == FMHAType::NONE && prefix_prompt_param.max_prefix_prompt_length > 0) {
         std::cout << "[CudaAttentionOp] Condition satisfied! Entering invokeLoadPrefixKVCache block" << std::endl;

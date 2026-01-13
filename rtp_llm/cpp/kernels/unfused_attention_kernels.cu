@@ -4902,9 +4902,28 @@ void invokeLoadPrefixKVCache(T*                             q_buf,
     dim3  block((size_per_head / Vec_t<T>::size + 31) / 32 * 32);
     dim3  grid(batch_size * param.max_prefix_prompt_length, head_num);
 
+    printf("[invokeLoadPrefixKVCache] batch_size=%d, max_prefix_prompt_length=%d, head_num=%d, "
+           "grid=(%d,%d), block=%d, cache_type=%d, mMaxSeqs=%d\n",
+           batch_size, param.max_prefix_prompt_length, head_num,
+           grid.x, grid.y, block.x, (int)param.kv_block_array.cache_type, param.kv_block_array.mMaxSeqs);
+
+    if (grid.x == 0 || grid.y == 0) {
+        printf("[invokeLoadPrefixKVCache] WARNING: Grid size is zero! grid.x=%d, grid.y=%d, kernel will not launch!\n",
+               grid.x, grid.y);
+        return;
+    }
+
     FT_SWITCH_KV_CACHE_TYPE_CASE(param.kv_block_array.cache_type, Tcache, [&] {
+        printf("[invokeLoadPrefixKVCache] Launching kernel with Tcache type, grid=(%d,%d), block=%d\n",
+               grid.x, grid.y, block.x);
         load_prefix_KVCache_kernel<T, Tcache>
             <<<grid, block, 0, stream>>>(q_buf, k_buf, v_buf, param, seq_len, head_num, head_num_kv, size_per_head);
+        cudaError_t err = cudaGetLastError();
+        if (err != cudaSuccess) {
+            printf("[invokeLoadPrefixKVCache] ERROR: Kernel launch failed with error: %s\n", cudaGetErrorString(err));
+        } else {
+            printf("[invokeLoadPrefixKVCache] Kernel launched successfully\n");
+        }
     });
 }
 
