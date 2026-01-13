@@ -153,7 +153,12 @@ AttentionModuleOutput CudaDevice::contextAttention(const AttentionModuleParams& 
         }
     }
 
+    std::cout << "[CudaAttentionOp] Checking condition: fmha_type_=" << (int)fmha_type_ 
+              << " (NONE=" << (int)FMHAType::NONE << "), max_prefix_prompt_length=" 
+              << prefix_prompt_param.max_prefix_prompt_length << std::endl;
+    
     if (fmha_type_ == FMHAType::NONE && prefix_prompt_param.max_prefix_prompt_length > 0) {
+        std::cout << "[CudaAttentionOp] Condition satisfied! Entering invokeLoadPrefixKVCache block" << std::endl;
         DISPATCH_CUDA_FUNCTION_DATA_TYPE(datatype,
                                          invokeLoadPrefixKVCache,
                                          q_output->data(),
@@ -169,6 +174,9 @@ AttentionModuleOutput CudaDevice::contextAttention(const AttentionModuleParams& 
                                          0,        // int8_mode,
                                          stream_);
         check_cuda_error();
+        std::cout << "[CudaAttentionOp] invokeLoadPrefixKVCache completed successfully" << std::endl;
+    } else {
+        std::cout << "[CudaAttentionOp] Condition not satisfied, skipping invokeLoadPrefixKVCache" << std::endl;
     }
 
     // if all condition satisfy, no need to do invokeAddFusedQKVBiasTranspose
