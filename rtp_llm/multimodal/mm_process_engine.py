@@ -490,6 +490,19 @@ class MMProcessEngine:
         if self.mm_preprocess_pool is None:
             return
         logging.info("Shutting down the preprocessing pool...")
-        self.mm_preprocess_pool.close()
-        self.mm_preprocess_pool.join()
-        logging.info("Preprocessing pool shut down.")
+        try:
+            # First try graceful shutdown
+            self.mm_preprocess_pool.close()
+            self.mm_preprocess_pool.join(timeout=5.0)
+            logging.info("Preprocessing pool shut down gracefully.")
+        except Exception as e:
+            logging.warning(f"Graceful shutdown failed: {e}, forcing termination...")
+            try:
+                # Force terminate if graceful shutdown fails
+                self.mm_preprocess_pool.terminate()
+                self.mm_preprocess_pool.join(timeout=5.0)
+                logging.info("Preprocessing pool terminated.")
+            except Exception as e:
+                logging.error(f"Failed to terminate preprocessing pool: {e}")
+        finally:
+            self.mm_preprocess_pool = None

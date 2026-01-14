@@ -61,13 +61,18 @@ def start_backend_server_impl(
     pipe_reader, pipe_writer = torch.multiprocessing.Pipe(duplex=False)
     logging.info(f"[PROCESS_SPAWN]Start backend server process outer")
 
-    backend_process = torch.multiprocessing.Process(
-        target=start_backend_server,
-        args=(global_controller, py_env_configs, pipe_writer, mm_process_engine),
-        name="backend_manager",
-    )
-    backend_process.start()
-    pipe_writer.close()  # Parent process closes write end
+    try:
+        backend_process = torch.multiprocessing.Process(
+            target=start_backend_server,
+            args=(global_controller, py_env_configs, pipe_writer, mm_process_engine),
+            name="backend_manager",
+        )
+        backend_process.start()
+        pipe_writer.close()  # Parent process closes write end
+    except Exception as e:
+        pipe_writer.close()
+        pipe_reader.close()
+        raise
 
     # Create check_ready_fn for pipe-based health check
     max_wait_seconds = 60 * 60
@@ -108,6 +113,10 @@ def start_backend_server_impl(
                 startup_status["error"] = error
                 pipe_reader.close()
                 raise Exception(error)
+
+        # Close pipe reader if no data available (prevents resource leak)
+        if not pipe_reader._closed:
+            pipe_reader.close()
 
         return False
 

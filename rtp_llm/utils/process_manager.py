@@ -157,6 +157,13 @@ class ProcessManager:
         logging.info(f"Monitoring {len(self.processes)} processes")
         self._monitor_processes_health()
         self._join_all_processes()
+        
+        # Clean up health check threads to prevent resource leaks
+        for thread in self.health_check_threads:
+            if thread.is_alive():
+                logging.info(f"Waiting for health check thread {thread.name} to finish...")
+                thread.join(timeout=1.0)
+        
         logging.info("Process monitoring completed")
 
     def graceful_shutdown(self):

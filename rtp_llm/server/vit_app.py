@@ -95,6 +95,8 @@ class VitEndpointApp:
         except BaseException as e:
             self.vit_endpoint_server.stop()
             raise e
+        finally:
+            sock.close()
 
     def create_app(self, worker_info: WorkerInfo):
         middleware = [
@@ -158,6 +160,15 @@ class VitEndpointServer:
             self.rpc_server.stop(grace=None)
         if self.mm_rpc_server is not None:
             self.mm_rpc_server.stop()
+        # Clear global caches to prevent memory leaks
+        from rtp_llm.multimodal.multimodal_util import vit_emb_cache_, url_data_cache_
+        vit_emb_cache_.resize_cache(0)
+        url_data_cache_.resize_cache(0)
+        # Clean up CUDA memory and force garbage collection
+        import gc
+        import torch
+        torch.cuda.empty_cache()
+        gc.collect()
 
     def worker_status(self):
         return {}
