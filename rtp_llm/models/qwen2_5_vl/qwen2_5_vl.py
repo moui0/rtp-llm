@@ -67,14 +67,15 @@ def smart_nframes(configs, total_frames, video_fps) -> int:
 
 
 class Qwen2_5_VLImageEmbedding(Qwen2VLImageEmbedding):
-    def __init__(self, mm_related_params: VitParameters, model_config=None):
+    def __init__(self, mm_related_params: VitParameters, model_config=None, **kwargs):
         super().__init__(mm_related_params, model_config=model_config)
         self.mm_related_params = mm_related_params
         self.image_processor = Qwen2VLImageProcessor.from_pretrained(
             mm_related_params.config["ckpt_path"]
         )
         self.visual = Qwen2_5_VisionTransformerPretrainedModel(
-            mm_related_params.config
+            mm_related_params.config,
+            **kwargs,
         )
 
     def load_video(self, data, configs, **kwargs):
@@ -133,10 +134,22 @@ class QWen2_5_VL(QWen2_VL):
     ):
         # mm_related_params is in model_config, not mm_model_config
         mm_related_params = self.model_config.mm_related_params
-        self.mm_part = Qwen2_5_VLImageEmbedding(mm_related_params, model_config=self.model_config)
+        kwargs = {
+            "parallelism_config": self.parallelism_config,
+            "quant_config": self.model_config.quant_config,
+            "hw_kernel_config": self.hw_kernel_config,
+        }
+        self.mm_part = Qwen2_5_VLImageEmbedding(mm_related_params, model_config=self.model_config, **kwargs)
         self.model_config.mm_related_params.vit_weights = QwenVL2VitWeight(
             {"vit": self.mm_part.visual}
         )
+    
+    def _load_mm_weight(self, vit_params: VitParameters, ctype, device: str):
+        super()._load_mm_weight(vit_params, ctype, device)
+        from rtp_llm.models.qwen2_5_vl.modeling_qwen2_5_vl import Qwen2_5_VLFusedMLP
+        for block in self.mm_part.visual.blocks:
+            if isinstance(block.mlp, Qwen2_5_VLFusedMLP):
+                block.mlp.createFusedMLP()
 
 
 register_model("qwen2_5_vl", QWen2_5_VL, ["Qwen2_5_VLForConditionalGeneration"])

@@ -26,7 +26,8 @@
 
 import logging
 import math
-from typing import Optional, Tuple
+import copy
+from typing import Optional, Tuple, Dict
 
 import torch
 import torch.library as tl
@@ -35,6 +36,10 @@ import torch.nn.functional as F
 from transformers.activations import ACT2FN
 
 from rtp_llm.utils.flash_attn_utils import can_use_flash_attn
+from rtp_llm.models_py.modules.hybrid.dense_mlp import DenseMLP
+from rtp_llm.ops import ActivationType
+from rtp_llm.utils.model_weight import W
+from rtp_llm.models_py.utils.arch import is_hip
 
 if not hasattr(tl, "wrap_triton"):
 
@@ -54,6 +59,8 @@ except Exception as e:
     logging.info(
         f"initialize flash_attn failed, exception {e}, using sdpa attention in qwen2.5 vl vit"
     )
+
+default_mlp_impl = "fused" if is_hip() else "eager"
 
 
 class Qwen2_5_VLVisionConfig:
@@ -93,7 +100,7 @@ class Qwen2_5_VLVisionConfig:
 
 
 class Qwen2_5_VLMLP(nn.Module):
-    def __init__(self, config, bias: bool = False):
+    def __init__(self, config, bias: bool = False, **kwargs):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
@@ -107,6 +114,52 @@ class Qwen2_5_VLMLP(nn.Module):
             self.act_fn(self.gate_proj(hidden_state)) * self.up_proj(hidden_state)
         )
 
+class Qwen2_5_VLFusedMLP(Qwen2_5_VLMLP):
+    def __init__(self, config, bias: bool = False, **kwargs):
+        super().__init__(config, bias=bias, **kwargs)
+        self.act_type: ActivationType = {
+            "silu": ActivationType.Swiglu,
+            "gelu": ActivationType.Gelu,
+        }[config.hidden_act]
+        self.hw_kernel_config = copy.copy(kwargs["hw_kernel_config"])
+        # disable swizzle for VIT FFN because of its shape
+        self.hw_kernel_config.use_swizzleA = False
+        self.parallelism_config = kwargs["parallelism_config"]
+        self.quant_config = kwargs["quant_config"]
+        self.impl = None
+    
+    def createFusedMLP(self):
+        if self.impl is not None:
+            return
+        
+        weights = {}
+        weights[W.ffn_w1] = self.gate_proj.weight.data.T.contiguous()
+        if self.gate_proj.bias is not None:
+            weights[W.ffn_b1] = self.gate_proj.bias.data
+        
+        weights[W.ffn_w3] = self.up_proj.weight.data.T.contiguous()
+        if self.up_proj.bias is not None:
+            weights[W.ffn_b3] = self.up_proj.bias.data
+        
+        weights[W.ffn_w2] = self.down_proj.weight.data.T.contiguous()
+        if self.down_proj.bias is not None:
+            weights[W.ffn_b2] = self.down_proj.bias.data
+        
+        self.impl = DenseMLP(
+            activation_type=self.act_type,
+            parallelism_config=self.parallelism_config,
+            weights=weights,
+            quant_config=self.quant_config,
+            hw_kernel_config=self.hw_kernel_config,
+        )
+        
+        del self.gate_proj
+        del self.up_proj
+        del self.down_proj
+    
+    def forward(self, hidden_state):
+        assert self.impl is not None, "DenseMLP not created yet. Call createFusedMLP() after loading weights."
+        return self.impl(hidden_state)
 
 class Qwen2_5_VisionPatchEmbed(nn.Module):
     def __init__(
@@ -410,16 +463,26 @@ QWEN2_5_VL_VISION_ATTENTION_CLASSES = {
     "sdpa": Qwen2_5_VLVisionSdpaAttention,
 }
 
+QWEN2_5_VL_VISION_MLP_CLASSES = {
+    "eager": Qwen2_5_VLMLP,
+    "fused": Qwen2_5_VLFusedMLP,
+}
 
 class Qwen2_5_VLVisionBlock(nn.Module):
-    def __init__(self, config, attn_implementation: str = default_attn_impl) -> None:
+    def __init__(
+        self,
+        config,
+        attn_implementation: str = default_attn_impl,
+        mlp_implementation: str = default_mlp_impl,
+        **kwargs,
+    ) -> None:
         super().__init__()
         self.norm1 = Qwen2RMSNorm(config.hidden_size, eps=1e-6)
         self.norm2 = Qwen2RMSNorm(config.hidden_size, eps=1e-6)
         self.attn = QWEN2_5_VL_VISION_ATTENTION_CLASSES[attn_implementation](
             config.hidden_size, num_heads=config.num_heads
         )
-        self.mlp = Qwen2_5_VLMLP(config, bias=True)
+        self.mlp = QWEN2_5_VL_VISION_MLP_CLASSES[mlp_implementation](config, bias=True, **kwargs)
 
     def forward(
         self,
@@ -459,7 +522,7 @@ class Qwen2_5_VisionTransformerPretrainedModel(nn.Module):
         self.rotary_pos_emb = Qwen2_5_VisionRotaryEmbedding(head_dim // 2)
 
         self.blocks = nn.ModuleList(
-            [Qwen2_5_VLVisionBlock(config) for _ in range(config.depth)]
+            [Qwen2_5_VLVisionBlock(config, **kwargs) for _ in range(config.depth)]
         )
         self.merger = Qwen2_5_VLPatchMerger(
             dim=config.out_hidden_size,
@@ -469,10 +532,16 @@ class Qwen2_5_VisionTransformerPretrainedModel(nn.Module):
         self.gradient_checkpointing = False
 
     def get_dtype(self) -> torch.dtype:
-        return self.blocks[0].mlp.up_proj.weight.dtype
+        mlp = self.blocks[0].mlp
+        if isinstance(mlp, Qwen2_5_VLFusedMLP) and mlp.impl is not None:
+            mlp = mlp.impl
+        return mlp.up_proj.weight.dtype
 
     def get_device(self) -> torch.device:
-        return self.blocks[0].mlp.up_proj.weight.device
+        mlp = self.blocks[0].mlp
+        if isinstance(mlp, Qwen2_5_VLFusedMLP) and mlp.impl is not None:
+            mlp = mlp.impl
+        return mlp.up_proj.weight.device
 
     def rot_pos_emb(self, grid_thw):
         pos_ids = []
