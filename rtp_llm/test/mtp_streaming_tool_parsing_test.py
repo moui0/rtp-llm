@@ -17,6 +17,9 @@ from rtp_llm.openai.renderers.sglang_helpers.entrypoints.openai.protocol import 
 from rtp_llm.openai.renderers.sglang_helpers.function_call.deepseekv31_detector import (
     DeepSeekV31Detector,
 )
+from rtp_llm.openai.renderers.sglang_helpers.function_call.glm4_moe_detector import (
+    Glm4MoeDetector,
+)
 from rtp_llm.openai.renderers.sglang_helpers.function_call.kimik2_detector import (
     KimiK2Detector,
 )
@@ -48,6 +51,47 @@ def create_tools():
                 name="get_time",
                 description="Get current time",
                 parameters={"type": "object", "properties": {}},
+            ),
+        ),
+    ]
+
+
+def create_glm4_tools():
+    """Create GLM-4 test tool definitions."""
+    return [
+        Tool(
+            type="function",
+            function=Function(
+                name="ask_user_question",
+                description="Ask the user questions",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "questions": {
+                            "type": "array",
+                            "description": "Questions to ask",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "question": {"type": "string"},
+                                    "header": {"type": "string"},
+                                    "multiSelect": {"type": "boolean"},
+                                    "options": {
+                                        "type": "array",
+                                        "items": {
+                                            "type": "object",
+                                            "properties": {
+                                                "label": {"type": "string"},
+                                                "description": {"type": "string"},
+                                            },
+                                        },
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    "required": ["questions"],
+                },
             ),
         ),
     ]
@@ -367,6 +411,174 @@ class TestDeepSeekV31DetectorMTP(unittest.TestCase):
             len(result2.calls),
             1,
             f"Expected 1 call, got {len(result2.calls)}. Calls: {result2.calls}",
+        )
+
+
+class TestGlm4MoeDetectorMTP(unittest.TestCase):
+    """Test Glm4MoeDetector MTP compatibility with GLM-4.7 format."""
+
+    def setUp(self):
+        self.detector = Glm4MoeDetector()
+        self.tools = create_glm4_tools()
+
+    def test_glm47_with_reasoning_and_tool_call(self):
+        """
+        Test GLM-4.7 format with <think> tags and tool calls.
+        This reproduces the issue reported in commit 91fc0bc536fd1176e711349cdd81a8ddd1b5d1ba.
+
+        Raw output format:
+        <think>reasoning content</think>normal text<tool_call>...</tool_call><|observation|>
+
+        Expected behavior:
+        - finish_reason: "tool_calls" (not "stop")
+        - reasoning_content: "reasoning content"
+        - content: "normal text"
+        - tool_calls: parsed tool call
+        """
+        # Note: The raw output provided by the user shows the complete response including <think> tags
+        # However, the Glm4MoeDetector only parses <tool_call> tags, not <think> tags.
+        # The <think> tags are handled by the ReasoningParser in the renderer layer.
+        # For this unit test, we test the detector's ability to parse tool calls
+        # from text that may have normal text before the tool call.
+
+        raw_output = (
+            "帮助用户做出明确的选择。我来调用 ask_user_question 工具，构造一些示例参数："
+            "<tool_call>ask_user_question<arg_key>questions</arg_key>"
+            '<arg_value>[{"question": "您希望使用哪种编程语言来开发这个功能？", '
+            '"header": "编程语言", "multiSelect": false, '
+            '"options": [{"label": "TypeScript", "description": "类型安全的 JavaScript 超集，适合大型项目"}, '
+            '{"label": "Python", "description": "简洁易读，适合快速开发和数据处理"}, '
+            '{"label": "Go", "description": "高性能并发，适合后端服务和微服务"}]}, '
+            '{"question": "您希望启用哪些功能特性？", "header": "功能特性", "multiSelect": true, '
+            '"options": [{"label": "实时更新", "description": "数据变更时自动同步更新界面"}, '
+            '{"label": "离线缓存", "description": "支持离线访问和数据缓存"}, '
+            '{"label": "主题切换", "description": "支持明暗主题切换"}]}]</arg_value>'
+            "</tool_call>"
+        )
+
+        result = self.detector.detect_and_parse(raw_output, self.tools)
+
+        # Should have normal text before the tool call
+        self.assertIn(
+            "ask_user_question",
+            result.normal_text,
+            f"Expected normal text to contain intro text, got '{result.normal_text}'",
+        )
+
+        # Should have 1 tool call
+        self.assertEqual(
+            len(result.calls),
+            1,
+            f"Expected 1 tool call, got {len(result.calls)}. Calls: {result.calls}",
+        )
+
+        # Verify tool call name
+        self.assertEqual(
+            result.calls[0].name,
+            "ask_user_question",
+            f"Expected tool name 'ask_user_question', got '{result.calls[0].name}'",
+        )
+
+        # Verify parameters contain questions
+        self.assertIn(
+            '"questions"',
+            result.calls[0].parameters,
+            f"Expected 'questions' in parameters. Got: {result.calls[0].parameters}",
+        )
+
+    def test_glm47_mtp_streaming_with_normal_text(self):
+        """
+        Test GLM-4.7 streaming scenario where tool call arrives with normal text in one chunk.
+        This simulates the MTP scenario where multiple tokens arrive together.
+        """
+        # Simulate streaming: first chunk has normal text, second chunk has tool call
+        chunk1 = "我来调用工具："
+        result1 = self.detector.parse_streaming_increment(chunk1, self.tools)
+
+        self.assertEqual(
+            result1.normal_text,
+            "我来调用工具：",
+            f"Expected normal text, got '{result1.normal_text}'",
+        )
+        self.assertEqual(
+            len(result1.calls),
+            0,
+            f"Expected 0 calls in first chunk, got {len(result1.calls)}",
+        )
+
+        # Second chunk: complete tool call
+        chunk2 = (
+            "<tool_call>ask_user_question<arg_key>questions</arg_key>"
+            '<arg_value>[{"question": "test", "header": "test", "multiSelect": false, '
+            '"options": [{"label": "A", "description": "Option A"}]}]</arg_value>'
+            "</tool_call>"
+        )
+        result2 = self.detector.parse_streaming_increment(chunk2, self.tools)
+
+        self.assertEqual(
+            len(result2.calls),
+            1,
+            f"Expected 1 call in second chunk, got {len(result2.calls)}. Calls: {result2.calls}",
+        )
+        self.assertEqual(
+            result2.calls[0].name,
+            "ask_user_question",
+            f"Expected 'ask_user_question', got '{result2.calls[0].name}'",
+        )
+
+    def test_glm47_mtp_complete_tool_call_single_chunk(self):
+        """
+        Test GLM-4.7 MTP scenario: complete tool call with normal text arrives in single chunk.
+        """
+        # Complete response in one chunk (MTP style)
+        chunk = (
+            "让我帮您创建问题："
+            "<tool_call>ask_user_question<arg_key>questions</arg_key>"
+            '<arg_value>[{"question": "选择语言？", "header": "语言", "multiSelect": false, '
+            '"options": [{"label": "Python", "description": "简单"}, '
+            '{"label": "Go", "description": "快速"}]}]</arg_value>'
+            "</tool_call>"
+        )
+
+        result = self.detector.parse_streaming_increment(chunk, self.tools)
+
+        self.assertEqual(
+            len(result.calls),
+            1,
+            f"Expected 1 call, got {len(result.calls)}. Calls: {result.calls}",
+        )
+        self.assertEqual(
+            result.calls[0].name,
+            "ask_user_question",
+            f"Expected 'ask_user_question', got '{result.calls[0].name}'",
+        )
+        self.assertIn(
+            "questions",
+            result.calls[0].parameters,
+            f"Expected 'questions' in parameters: {result.calls[0].parameters}",
+        )
+
+    def test_glm47_stop_word_handling(self):
+        """
+        Test that <|observation|> stop word is properly handled (should be truncated).
+        Note: The detector itself doesn't handle stop words - that's done by the renderer.
+        This test verifies the detector works correctly with text that may have had
+        stop words removed.
+        """
+        # Text with stop word already removed (as it would be by renderer)
+        text_without_stop = (
+            "<tool_call>ask_user_question<arg_key>questions</arg_key>"
+            '<arg_value>[{"question": "test?", "header": "T", "multiSelect": false, '
+            '"options": [{"label": "A", "description": "Opt A"}]}]</arg_value>'
+            "</tool_call>"
+        )
+
+        result = self.detector.detect_and_parse(text_without_stop, self.tools)
+
+        self.assertEqual(
+            len(result.calls),
+            1,
+            f"Expected 1 call, got {len(result.calls)}",
         )
 
 
