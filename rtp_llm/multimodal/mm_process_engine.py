@@ -156,6 +156,9 @@ class MMWorkItem:
         except Exception as e:
             logging.error(f"Error getting preprocess result: {e}", exc_info=True)
             raise
+        finally:
+            # 清理 future 对象以释放资源
+            self.future = None
 
     def get_embedding_result(self, embedding_func: Callable) -> Any:
         """Compute embedding result from preprocessed data or return cached result."""
@@ -179,6 +182,10 @@ class MMWorkItem:
 
         return self.embedding_result
 
+    def cleanup(self) -> None:
+        """"avoid memory leak by clearing references."""
+        self.future = None
+        self.preprocess_result = None
 
 class MMProcessEngine:
     """Engine for processing multimodal inputs with preprocessing and embedding."""
@@ -290,6 +297,7 @@ class MMProcessEngine:
 
     def mm_embedding_impl(self, mm_inputs: List[MultimodalInput]) -> MMEmbeddingRes:
         """Core implementation for multimodal embedding processing."""
+        work_items = []
         try:
             kmonitor.report(AccMetrics.VIT_QPS_METRIC, 1, {"source": "mm_embedding"})
             self.inc_query_num()
@@ -313,6 +321,9 @@ class MMProcessEngine:
             raise
         finally:
             self.dec_query_num()
+            # 清理工作项以释放内存
+            for work_item in work_items:
+                work_item.cleanup()
 
     @staticmethod
     def _get_child_pids_from_pool(pool: multiprocessing.pool.Pool) -> List[int]:
@@ -346,6 +357,10 @@ class MMProcessEngine:
                 old_pool.join()
             except Exception as e:
                 logging.warning(f"Error during pool termination: {e}", exc_info=True)
+            finally:
+                # remove any remaining child processes 
+                del old_pool
+                gc.collect()
 
             # Re-create the pool
             try:
@@ -472,6 +487,7 @@ class MMProcessEngine:
                     ordered_pos[idx] = result[1]
                     if len(result) > 2:
                         ordered_tensor[idx] = result[2]
+                del batch_outputs
             else:
                 for idx, work_item in pending_items:
                     result = work_item.get_embedding_result(self.mm_part.embedding)
@@ -485,6 +501,8 @@ class MMProcessEngine:
             pos_res.extend(self._maybe_tensor_to_list(pos, dim=2))
             tensor_res.extend(self._maybe_tensor_to_list(tensor, dim=3))
 
+        del ordered_emb, ordered_pos, ordered_tensor, pending_items
+
         return emb_res, pos_res, tensor_res
 
     def stop(self) -> None:
@@ -492,6 +510,10 @@ class MMProcessEngine:
         if self.mm_preprocess_pool is None:
             return
         logging.info("Shutting down the preprocessing pool...")
-        self.mm_preprocess_pool.close()
-        self.mm_preprocess_pool.join()
+        try:
+            self.mm_preprocess_pool.close()
+            self.mm_preprocess_pool.join()
+        finally:
+            self.mm_preprocess_pool = None
+            gc.collect()
         logging.info("Preprocessing pool shut down.")
