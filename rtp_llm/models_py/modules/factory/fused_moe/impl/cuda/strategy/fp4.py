@@ -115,6 +115,9 @@ class CudaFp4EpLowLatencyStrategy(MoeStrategy):
 class CudaFp4EpNormalStrategy(MoeStrategy):
     """CUDA FP4 PerGroup EP normal mode strategy"""
 
+    def can_handle(self, config: MoEConfigAdapter) -> bool:
+        return True
+
     @classmethod
     def check_conditions(cls, checker: Any, config: MoEConfigAdapter) -> None:
         return True
