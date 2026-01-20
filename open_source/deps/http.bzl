@@ -49,10 +49,20 @@ def http_deps():
     )
 
     http_archive(
+        name = "torch_2.8_py310_cuda",
+        sha256 = "54d240b5d3b1f9075d4ee6179675a22c1974f7bef1885d134c582678d5180cd3",
+        urls = [
+            "https://download.pytorch.org/whl/cu129/torch-2.8.0%2Bcu129-cp310-cp310-manylinux_2_28_x86_64.whl",
+        ],
+        type = "zip",
+        build_file = clean_dep("//:BUILD.pytorch"),
+    )
+
+    http_archive(
         name = "torch_rocm",
         sha256 = "2b3f53e7cf53df7f89b8af1f139fe1aa8c0085b3ad654d0a44cbc125b4fbe66d",
         urls = [
-            "https://siwei-zm.oss-cn-hangzhou-zmf.aliyuncs.com/MI308X/deps/torch-2.7.1%2Brocm6.4.3.git9015dfd-cp310-cp310-linux_x86_64.whl"
+            "https://sinian-metrics-platform.oss-cn-hangzhou.aliyuncs.com/kis/AMD/torch/torch-2.7.1%2Brocm6.4.3.git9015dfd-cp310-cp310-linux_x86_64.whl"
         ],
         type = "zip",
         build_file = clean_dep("//:BUILD.pytorch"),
