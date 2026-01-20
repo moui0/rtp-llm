@@ -121,7 +121,7 @@ class TrtllmFp4Executor(FusedMoeExpertExecutor):
             hidden_states, hidden_states_scale = fp4_quantize(
                 payload.expert_x, self.expert_x_scale, is_sf_swizzled_layout=False)
         else:
-            assert payload.expert_x.dtype is torch.uint8
+            assert payload.expert_x.dtype is torch.uint8, f"payload.expert_x.dtype: {payload.expert_x.dtype}"
             assert payload.expert_x_scale is not None
             hidden_states, hidden_states_scale = payload.expert_x, payload.expert_x_scale
 
