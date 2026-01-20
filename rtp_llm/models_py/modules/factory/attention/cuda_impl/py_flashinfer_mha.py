@@ -189,6 +189,26 @@ class PyFlashinferPrefillImpl(FMHAPrefillImplBase):
         return FMHAType.PY_FLASHINFER_PREFILL
 
 
+class PyFlashinferPagedPrefillImpl(FMHAPrefillImplBase):
+    def __init__(
+        self,
+        attn_configs: AttentionConfigs,
+        attn_inputs: PyAttentionInputs,
+    ) -> None:
+        super().__init__(
+            PyFlashinferPrefillPagedAttnOp(attn_configs),
+            FusedRopeKVCachePrefillOp(attn_configs),
+            attn_inputs,
+        )
+
+    def support(self):
+        return True
+
+    @staticmethod
+    def fmha_type() -> FMHAType:
+        return FMHAType.PY_FLASHINFER_PREFILL
+
+
 from flashinfer.decode import BatchDecodeWithPagedKVCacheWrapper
 
 
