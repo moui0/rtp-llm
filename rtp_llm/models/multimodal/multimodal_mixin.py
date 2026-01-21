@@ -114,7 +114,7 @@ class MultiModalMixin:
         weight_names = vit_weight.weight_names
         torch_dtype = to_torch_dtype(ctype)
 
-        mm_state_dict = self.mm_part.state_dict()
+        mm_state_dict = self.mm_part.visual.state_dict()
         print("XXXXXXX mm_state_dict", mm_state_dict)
 
         state_dict_to_load = {}
@@ -149,11 +149,11 @@ class MultiModalMixin:
         if not state_dict_to_load:
             raise Exception(
                 f"No valid weights to load. weight_names: {weight_names[:10]}..., "
-                f"mm_part.state_dict() keys: {list(mm_state_dict.keys())[:10]}..., "
+                f"mm_part.visual.state_dict() keys: {list(mm_state_dict.keys())[:10]}..., "
                 f"skipped_names: {skipped_names[:10]}..."
             )
 
-        missing_keys, unexpected_keys = self.mm_part.load_state_dict(
+        missing_keys, unexpected_keys = self.mm_part.visual.load_state_dict(
             state_dict_to_load, strict=False
         )
 
