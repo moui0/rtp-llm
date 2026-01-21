@@ -81,6 +81,7 @@ class Qwen2_5_VLVisionConfig:
         window_size=112,
         out_hidden_size=3584,
         fullatt_block_indexes=[7, 15, 23, 31],
+        **kwargs,
     ):
         self.depth = depth
         self.hidden_size = hidden_size
@@ -494,7 +495,7 @@ class Qwen2_5_VLVisionBlock(nn.Module):
 
 
 class Qwen2_5_VisionTransformerPretrainedModel(nn.Module):
-    def __init__(self, config_json, *inputs) -> None:
+    def __init__(self, config_json, *inputs, **kwargs) -> None:
         super().__init__()
         config = Qwen2_5_VLVisionConfig(**config_json)
         self.spatial_merge_size = config.spatial_merge_size
