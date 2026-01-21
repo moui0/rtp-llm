@@ -108,27 +108,59 @@ class MultiModalMixin:
         raise NotImplementedError
 
     def _load_mm_weight(self, vit_params: VitParameters, ctype: str, device: str):
-        # Load weight only for self.mm_part
+        from rtp_llm.utils.util import to_torch_dtype
 
         vit_weight = vit_params.vit_weights
-        ft_prefix = vit_weight.ft_prefix
         weight_names = vit_weight.weight_names
+        torch_dtype = to_torch_dtype(ctype)
 
-        def _safe_load_from_module(param: torch.nn.Parameter, fname: str, ctype):
-            from rtp_llm.utils.util import to_torch_dtype
+        mm_state_dict = self.mm_part.state_dict()
+        print("XXXXXXX mm_state_dict", mm_state_dict)
 
-            t = self.weight.get_global_weight_or_none(fname)
-            if t is None:
-                raise Exception(f"failed to get tensor from name {fname}")
-            # Convert ctype (which may be DataType enum or string) to torch.dtype
-            torch_dtype = to_torch_dtype(ctype)
-            param.data = t.reshape(param.data.shape).to(torch_dtype).to(device)
-
+        state_dict_to_load = {}
+        skipped_names = []
+        ft_prefix = vit_weight.ft_prefix
+        
         for w in weight_names:
+            print("XXXXXXX w", w)
             w_name = ft_prefix + w
             w_name = re.sub(r"\.\d+\.", lambda x: "[" + x.group(0)[1:-1] + "].", w_name)
-            param = eval(w_name)
-            _safe_load_from_module(param, w, ctype)
+            try:
+                param = eval(w_name)
+                print("XXXXXXX param", param)
+                if not isinstance(param, torch.nn.Parameter):
+                    raise Exception(f"'{w_name}' does not evaluate to a Parameter")
+            except (AttributeError, KeyError, IndexError) as e:
+                print("XXXXXXX e", e)
+                skipped_names.append(w)
+                continue
+            
+            if w not in mm_state_dict:
+                skipped_names.append(w)
+                continue
+
+            t = self.weight.get_global_weight_or_none(w)
+            if t is None:
+                raise Exception(f"failed to get tensor from name {w}")
+
+            target_shape = mm_state_dict[w].shape
+            state_dict_to_load[w] = t.reshape(target_shape).to(torch_dtype).to(device)
+
+        if not state_dict_to_load:
+            raise Exception(
+                f"No valid weights to load. weight_names: {weight_names[:10]}..., "
+                f"mm_part.state_dict() keys: {list(mm_state_dict.keys())[:10]}..., "
+                f"skipped_names: {skipped_names[:10]}..."
+            )
+
+        missing_keys, unexpected_keys = self.mm_part.load_state_dict(
+            state_dict_to_load, strict=False
+        )
+
+        if unexpected_keys:
+            raise Exception(
+                f"Unexpected keys when loading mm weights: {unexpected_keys}"
+            )
 
     def init_mm_trt(
         self,

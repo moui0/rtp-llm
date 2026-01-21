@@ -26,7 +26,6 @@
 
 import logging
 import math
-import copy
 from typing import Optional, Tuple, Dict
 
 import torch
@@ -60,7 +59,7 @@ except Exception as e:
         f"initialize flash_attn failed, exception {e}, using sdpa attention in qwen2.5 vl vit"
     )
 
-default_mlp_impl = "fused" if is_hip() else "eager"
+default_mlp_impl = "eager" if is_hip() else "eager"
 
 
 class Qwen2_5_VLVisionConfig:
@@ -82,7 +81,6 @@ class Qwen2_5_VLVisionConfig:
         window_size=112,
         out_hidden_size=3584,
         fullatt_block_indexes=[7, 15, 23, 31],
-        **kwargs,
     ):
         self.depth = depth
         self.hidden_size = hidden_size
@@ -100,7 +98,7 @@ class Qwen2_5_VLVisionConfig:
 
 
 class Qwen2_5_VLMLP(nn.Module):
-    def __init__(self, config, bias: bool = False, **kwargs):
+    def __init__(self, config, bias: bool = False):
         super().__init__()
         self.hidden_size = config.hidden_size
         self.intermediate_size = config.intermediate_size
@@ -115,17 +113,12 @@ class Qwen2_5_VLMLP(nn.Module):
         )
 
 class Qwen2_5_VLFusedMLP(Qwen2_5_VLMLP):
-    def __init__(self, config, bias: bool = False, **kwargs):
-        super().__init__(config, bias=bias, **kwargs)
+    def __init__(self, config, bias: bool = False):
+        super().__init__(config, bias=bias)
         self.act_type: ActivationType = {
             "silu": ActivationType.Swiglu,
             "gelu": ActivationType.Gelu,
         }[config.hidden_act]
-        self.hw_kernel_config = copy.copy(kwargs["hw_kernel_config"])
-        # disable swizzle for VIT FFN because of its shape
-        self.hw_kernel_config.use_swizzleA = False
-        self.parallelism_config = kwargs["parallelism_config"]
-        self.quant_config = kwargs["quant_config"]
         self.impl = None
     
     def createFusedMLP(self):
@@ -474,7 +467,6 @@ class Qwen2_5_VLVisionBlock(nn.Module):
         config,
         attn_implementation: str = default_attn_impl,
         mlp_implementation: str = default_mlp_impl,
-        **kwargs,
     ) -> None:
         super().__init__()
         self.norm1 = Qwen2RMSNorm(config.hidden_size, eps=1e-6)
@@ -482,7 +474,7 @@ class Qwen2_5_VLVisionBlock(nn.Module):
         self.attn = QWEN2_5_VL_VISION_ATTENTION_CLASSES[attn_implementation](
             config.hidden_size, num_heads=config.num_heads
         )
-        self.mlp = QWEN2_5_VL_VISION_MLP_CLASSES[mlp_implementation](config, bias=True, **kwargs)
+        self.mlp = QWEN2_5_VL_VISION_MLP_CLASSES[mlp_implementation](config, bias=True)
 
     def forward(
         self,
@@ -502,7 +494,7 @@ class Qwen2_5_VLVisionBlock(nn.Module):
 
 
 class Qwen2_5_VisionTransformerPretrainedModel(nn.Module):
-    def __init__(self, config_json, *inputs, **kwargs) -> None:
+    def __init__(self, config_json, *inputs) -> None:
         super().__init__()
         config = Qwen2_5_VLVisionConfig(**config_json)
         self.spatial_merge_size = config.spatial_merge_size
@@ -522,7 +514,7 @@ class Qwen2_5_VisionTransformerPretrainedModel(nn.Module):
         self.rotary_pos_emb = Qwen2_5_VisionRotaryEmbedding(head_dim // 2)
 
         self.blocks = nn.ModuleList(
-            [Qwen2_5_VLVisionBlock(config, **kwargs) for _ in range(config.depth)]
+            [Qwen2_5_VLVisionBlock(config) for _ in range(config.depth)]
         )
         self.merger = Qwen2_5_VLPatchMerger(
             dim=config.out_hidden_size,
